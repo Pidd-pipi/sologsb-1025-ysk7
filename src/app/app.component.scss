@@ -30,6 +30,12 @@
 .emergency-banner > div:nth-child(2) { flex: 1; }
 .emergency-banner strong { font-size: 14px; }
 .emergency-banner p { margin: 2px 0 0; color: #8b664c; font-size: 12px; }
+.stale-banner { margin-bottom: 16px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; border: 1px solid #e7a08d; border-radius: 14px; background: #fdeee9; }
+.stale-sign { padding: 6px 10px; border-radius: 8px; color: #fff; background: #c95740; font-weight: 700; white-space: nowrap; }
+.stale-banner > div:nth-child(2) { flex: 1; }
+.stale-banner strong { font-size: 14px; color: #7a3325; }
+.stale-banner p { margin: 2px 0 0; color: #9a6353; font-size: 12px; }
+.stale-banner b { color: #c95740; }
 .view-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
 .main-column { min-width: 0; display: grid; gap: 16px; }
 .side-column { display: grid; gap: 14px; }
@@ -103,6 +109,20 @@ nb-card-body { padding: 18px 20px 20px; }
 .score-card strong { display: block; color: #194b54; font-size: 56px; line-height: 1; }
 .score-card p { margin: 4px 0 16px; color: #7c9096; font-size: 12px; }
 .score-row { padding: 7px 0; border-top: 1px solid #edf1f1; }
+.gate-card nb-card-body { display: grid; gap: 12px; }
+.gate-copy { margin: 0; color: #71848a; font-size: 12px; line-height: 1.6; }
+.gate-roles { display: grid; gap: 6px; }
+.gate-role { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 11px; border: 1px solid #e2eaea; border-radius: 10px; background: #f3f9f6; font-size: 12px; }
+.gate-role strong { color: #2c474f; }
+.gate-role > span { display: inline-flex; align-items: center; gap: 6px; color: #2d7a5f; }
+.gate-role.missing { border-color: #efb8a8; background: #fdf2ee; }
+.gate-role.focus { box-shadow: 0 0 0 2px #ef8354; }
+.gate-discussions { display: grid; gap: 7px; }
+.gate-discussions h4 { margin: 2px 0; color: #b84c38; font-size: 12px; }
+.discussion-locator { display: grid; gap: 3px; padding: 9px 11px; text-align: left; border: 1px solid #eed5cc; border-radius: 10px; background: #fff7f4; cursor: pointer; }
+.discussion-locator b { color: #c95740; font-size: 11px; }
+.discussion-locator span { color: #7d6a64; font-size: 11px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discussion-locator.focus { border-color: #ef8354; box-shadow: 0 0 0 2px #ffe1cf; }
 .role-picker { display: flex; align-items: center; gap: 10px; color: #687e85; font-size: 12px; }
 blockquote { margin: 0 0 15px; padding: 15px 18px; border-left: 4px solid #ef8354; border-radius: 0 10px 10px 0; color: #27424a; background: #fff7f2; font-size: 15px; line-height: 1.7; }
 .discussion-compose { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
@@ -118,6 +138,10 @@ blockquote { margin: 0 0 15px; padding: 15px 18px; border-left: 4px solid #ef835
 .discussion-list p b { color: #c86a38; }
 .role-review-card article { padding: 12px 0; border-bottom: 1px solid #edf1f1; }
 .role-review-card article:first-child { padding-top: 0; }
+.role-review-card article.focus { margin: 0 -8px; padding: 12px 8px; border-radius: 10px; background: #fff6ef; box-shadow: 0 0 0 2px #ffd9bf; }
+.role-review-card article.stale > header b.approved { color: #c95740; background: #fdeee9; }
+.confirm-time { margin: 0 0 7px; color: #5f747b; font-size: 11px; line-height: 1.5; }
+.role-review-card article.stale .confirm-time { color: #c95740; }
 .role-review-card article > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .role-review-card article > header strong, .role-review-card article > header span { display: block; }
 .role-review-card article > header strong { font-size: 13px; }
@@ -137,6 +161,8 @@ blockquote { margin: 0 0 15px; padding: 15px 18px; border-left: 4px solid #ef835
 .timeline strong { margin-top: 2px; color: #2d464e; font-size: 13px; }
 .timeline p { margin: 4px 0; color: #87979b; font-size: 10px; }
 .timeline small { color: #c45a3c; }
+.timeline small.locked-tag { margin-left: 6px; color: #2d7a5f; }
+.discussion-list article.focus { outline: 2px solid #ef8354; outline-offset: 1px; background: #fff7f1; }
 .diff-header { align-items: flex-end; }
 .diff-controls { display: flex; align-items: center; gap: 8px; color: #839499; font-size: 11px; }
 .diff-controls nb-select { width: 150px; }
@@ -163,6 +189,11 @@ blockquote { margin: 0 0 15px; padding: 15px 18px; border-left: 4px solid #ef835
 .version-summary dl { margin: 0; display: grid; grid-template-columns: auto 1fr; align-content: start; gap: 5px 10px; font-size: 11px; }
 .version-summary dt { color: #89999d; }
 .version-summary dd { margin: 0; color: #4d646c; text-align: right; }
+.confirmations { list-style: none; margin: 9px 0 0; padding: 9px 10px 0; border-top: 1px dashed #dfe8e8; display: grid; gap: 4px; }
+.confirmations li { display: grid; grid-template-columns: 52px 64px 1fr; gap: 8px; align-items: baseline; font-size: 11px; }
+.confirmations strong { color: #2d464e; }
+.confirmations span { color: #85969b; }
+.confirmations em { color: #2d7a5f; font-style: normal; text-align: right; }
 @media (max-width: 1100px) {
   .view-grid, .check-layout, .review-grid, .version-layout { grid-template-columns: 1fr; }
   .side-column { grid-template-columns: repeat(3, 1fr); }

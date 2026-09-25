@@ -48,6 +48,15 @@ interface RoleReview {
   owner: string;
   status: ReviewStatus;
   note: string;
+  confirmedAt?: string;
+  stale?: boolean;
+}
+
+interface RoleConfirmation {
+  role: RoleReview['role'];
+  owner: string;
+  status: ReviewStatus;
+  confirmedAt?: string;
 }
 
 interface VersionSnapshot {
@@ -65,6 +74,8 @@ interface VersionSnapshot {
   languages: LanguageVersion[];
   note: string;
   emergency: boolean;
+  locked?: boolean;
+  confirmations?: RoleConfirmation[];
 }
 
 interface NoticeDraft {
@@ -85,6 +96,7 @@ interface NoticeDraft {
   status: NoticeStatus;
   version: string;
   lockedAt?: string;
+  lockedVersionId?: string;
   emergencyRevision: boolean;
   updatedAt: string;
 }
@@ -312,6 +324,9 @@ export class AppComponent implements OnInit {
   lastSavedAt = '';
   history: NoticeDraft[] = [];
   future: NoticeDraft[] = [];
+  focusDiscussionId = '';
+  focusRole: RoleReview['role'] | '' = '';
+  lockFeedback = '';
 
   constructor(private readonly toastr: NbToastrService) {}
 
@@ -427,10 +442,20 @@ export class AppComponent implements OnInit {
       id: 'time-expires', category: '时间冲突', level: 'error', title: '失效时间早于生效时间',
       detail: '通知有效期必须晚于生效时间。'
     });
-    const unresolved = this.draft.discussions.filter((discussion) => !discussion.resolved).length;
-    if (unresolved) checks.push({
-      id: 'discussions', category: '逐句讨论', level: 'warning', title: `${unresolved} 条讨论尚未解决`,
-      detail: '发布前请处理或明确忽略未解决讨论。'
+    const unresolved = this.draft.discussions.filter((discussion) => !discussion.resolved);
+    if (unresolved.length) checks.push({
+      id: 'discussions', category: '逐句讨论', level: 'error', title: `${unresolved.length} 条逐句讨论尚未解决`,
+      detail: `发布门禁要求逐句讨论全部解决，当前卡在：${unresolved
+        .map((item) => `${this.languageName(item.languageId)}第 ${item.sentenceIndex + 1} 句`)
+        .join('、')}。`
+    });
+
+    const missingRoles = this.draft.reviews
+      .filter((review) => review.status !== 'approved' || review.stale)
+      .map((review) => (review.stale ? `${review.role}（锁定后内容变更，需重新确认）` : review.role));
+    if (missingRoles.length) checks.push({
+      id: 'role-confirmations', category: '跨角色确认', level: 'error', title: `${missingRoles.length} 个角色尚未完成确认`,
+      detail: `发布门禁要求编辑、法务、翻译、发布人全部确认；缺少：${missingRoles.join('、')}。`
     });
     return checks;
   }
@@ -448,11 +473,53 @@ export class AppComponent implements OnInit {
   }
 
   get allReviewsApproved(): boolean {
-    return this.draft.reviews.every((review) => review.status === 'approved');
+    return this.draft.reviews.every((review) => review.status === 'approved' && !review.stale);
   }
 
   get hasIncompleteReviews(): boolean {
-    return this.draft.reviews.some((review) => review.status !== 'approved');
+    return this.draft.reviews.some((review) => review.status !== 'approved' || review.stale);
+  }
+
+  /** 未满足门禁的角色确认：未确认，或锁定后内容变更导致确认已失效 */
+  get missingRoleReviews(): RoleReview[] {
+    return this.draft.reviews.filter((review) => review.status !== 'approved' || review.stale);
+  }
+
+  get staleReviews(): RoleReview[] {
+    return this.draft.reviews.filter((review) => review.stale);
+  }
+
+  get staleRoleNames(): string {
+    return this.staleReviews.map((review) => review.role).join('、');
+  }
+
+  get missingRoleNames(): string {
+    return this.missingRoleReviews
+      .map((review) => review.stale ? `${review.role}（待重认）` : review.role)
+      .join('、');
+  }
+
+  /** 全部语言中未解决的逐句讨论，按语言和句子排序 */
+  get unresolvedDiscussions(): Discussion[] {
+    return this.draft.discussions
+      .filter((discussion) => !discussion.resolved)
+      .sort((a, b) => a.languageId.localeCompare(b.languageId) || a.sentenceIndex - b.sentenceIndex);
+  }
+
+  /** 跨角色确认门禁是否已满足：四角色全部有效确认且无未解决讨论 */
+  get confirmationGateReady(): boolean {
+    return this.allReviewsApproved && !this.unresolvedDiscussions.length;
+  }
+
+  languageName(languageId: string): string {
+    return this.draft.languages.find((language) => language.id === languageId)?.name
+      ?? this.locales.find((locale) => locale.id === languageId)?.name
+      ?? languageId;
+  }
+
+  discussionSentence(discussion: Discussion): string {
+    const body = this.draft.languages.find((language) => language.id === discussion.languageId)?.body ?? '';
+    return this.splitSentences(body)[discussion.sentenceIndex] ?? '（对应句子已不存在）';
   }
 
   isSentenceDiscussed(index: number): boolean {
@@ -473,21 +540,25 @@ export class AppComponent implements OnInit {
     return this.diffSentences(this.splitSentences(baseLanguage?.body ?? ''), this.splitSentences(targetLanguage?.body ?? ''));
   }
 
+  private static readonly META_ROLES: RoleReview['role'][] = ['编辑', '法务', '发布人'];
+  private static readonly LANGUAGE_ROLES: RoleReview['role'][] = ['编辑', '翻译', '发布人'];
+  private static readonly REQUIRED_LOCALE_ROLES: RoleReview['role'][] = ['翻译', '发布人'];
+
   updateMeta(field: 'title' | 'eventType' | 'severity' | 'scope' | 'eventAt' | 'effectiveAt' | 'expiresAt', value: string): void {
-    this.commit((draft) => {
+    if (this.draft[field] === value) return;
+    this.changeContent(AppComponent.META_ROLES, (draft) => {
       (draft as unknown as Record<string, unknown>)[field] = value;
-      draft.status = draft.status === 'locked' ? 'draft' : draft.status;
     });
   }
 
   toggleChannel(channel: string, checked: boolean): void {
-    this.commit((draft) => {
+    this.changeContent(AppComponent.META_ROLES, (draft) => {
       draft.channels = checked ? [...new Set([...draft.channels, channel])] : draft.channels.filter((item) => item !== channel);
     });
   }
 
   toggleRequiredLocale(locale: string, checked: boolean): void {
-    this.commit((draft) => {
+    this.changeContent(AppComponent.REQUIRED_LOCALE_ROLES, (draft) => {
       draft.requiredLocales = checked
         ? [...new Set([...draft.requiredLocales, locale])]
         : draft.requiredLocales.filter((item) => item !== locale);
@@ -495,14 +566,14 @@ export class AppComponent implements OnInit {
   }
 
   updateLanguage(field: 'title' | 'body' | 'translator', value: string): void {
-    this.commit((draft) => {
+    this.changeContent(AppComponent.LANGUAGE_ROLES, (draft) => {
       const language = draft.languages.find((item) => item.id === this.selectedLanguageId);
       if (language) language[field] = value;
     });
   }
 
   setLanguageReviewed(checked: boolean): void {
-    this.commit((draft) => {
+    this.changeContent(AppComponent.LANGUAGE_ROLES, (draft) => {
       const language = draft.languages.find((item) => item.id === this.selectedLanguageId);
       if (language) language.reviewed = checked;
     });
@@ -534,9 +605,17 @@ export class AppComponent implements OnInit {
   }
 
   setReviewStatus(role: RoleReview['role'], status: ReviewStatus): void {
+    this.focusRole = '';
     this.commit((draft) => {
       const review = draft.reviews.find((item) => item.role === role);
-      if (review) review.status = status;
+      if (!review) return;
+      review.status = status;
+      if (status === 'approved') {
+        review.stale = false;
+        review.confirmedAt = new Date().toISOString();
+      } else {
+        review.confirmedAt = undefined;
+      }
     });
   }
 
@@ -550,7 +629,7 @@ export class AppComponent implements OnInit {
   applyTemplate(): void {
     const template = this.templates.find((item) => item.id === this.selectedTemplateId);
     if (!template || this.isLocked) return;
-    this.commit((draft) => {
+    this.changeContent(this.roles, (draft) => {
       draft.eventType = template.eventType;
       draft.severity = template.severity;
       draft.scope = template.scope;
@@ -565,26 +644,71 @@ export class AppComponent implements OnInit {
   }
 
   lockVersion(): void {
-    if (this.blockingChecks.length) {
-      this.toastr.warning(`仍有 ${this.blockingChecks.length} 项阻断问题，不能锁定。`, '发布检查未通过');
-      this.activeView = 'checks';
+    if (this.isLocked) return;
+
+    const missingRoles = this.missingRoleReviews;
+    const unresolved = this.unresolvedDiscussions;
+    const blockers: CheckResult[] = this.blockingChecks.filter(
+      (check) => check.id !== 'discussions' && check.id !== 'role-confirmations'
+    );
+
+    // 跨角色确认门禁：缺谁、卡在哪句，逐项说明并停在对应位置
+    if (missingRoles.length || unresolved.length || blockers.length) {
+      this.lockFeedback = [
+        missingRoles.length
+          ? `缺少角色确认：${missingRoles
+              .map((review) => review.stale ? `${review.role}（旧确认已失效，需重新确认）` : review.role)
+              .join('、')}`
+          : '',
+        unresolved.length
+          ? `未解决逐句讨论：${unresolved
+              .map((item) => `${this.languageName(item.languageId)}第 ${item.sentenceIndex + 1} 句`)
+              .join('、')}`
+          : '',
+        blockers.length ? `另有 ${blockers.length} 项发布检查未通过` : ''
+      ].filter(Boolean).join('；') + '。';
+
+      const stuck = unresolved[0];
+      if (unresolved.length) {
+        this.toastr.warning(this.lockFeedback, '发布门禁未通过');
+        this.goToDiscussion(stuck);
+      } else if (missingRoles.length) {
+        this.toastr.warning(this.lockFeedback, '发布门禁未通过');
+        this.goToRole(missingRoles[0].role);
+      } else {
+        this.toastr.warning(this.lockFeedback, '发布检查未通过');
+        this.goToChecks();
+      }
       return;
     }
+
+    const lockedAt = new Date().toISOString();
     const snapshot: VersionSnapshot = {
-      id: uid('version'), label: '最终锁定版本', createdAt: new Date().toISOString(), version: this.nextVersion,
+      id: uid('version'), label: '最终锁定版本', createdAt: lockedAt, version: this.nextVersion,
       title: this.draft.title, severity: this.draft.severity, scope: this.draft.scope, eventAt: this.draft.eventAt,
       effectiveAt: this.draft.effectiveAt, expiresAt: this.draft.expiresAt, channels: [...this.draft.channels],
-      languages: clone(this.draft.languages), note: '发布前检查通过并锁定。', emergency: false
+      languages: clone(this.draft.languages), note: '发布前检查通过，四角色确认齐备并锁定。', emergency: this.draft.emergencyRevision,
+      locked: true,
+      confirmations: this.draft.reviews.map((review) => ({
+        role: review.role, owner: review.owner, status: review.status,
+        confirmedAt: review.confirmedAt ?? lockedAt
+      }))
     };
     this.commit((draft) => {
       draft.versions.push(snapshot);
       draft.version = snapshot.version;
       draft.status = 'locked';
-      draft.lockedAt = snapshot.createdAt;
+      draft.lockedAt = lockedAt;
+      draft.lockedVersionId = snapshot.id;
+      draft.emergencyRevision = false;
     });
+    this.lockFeedback = '';
     this.compareBaseId = this.draft.versions.at(-2)?.id ?? '';
     this.compareTargetId = this.draft.versions.at(-1)?.id ?? '';
-    this.toastr.success(`版本 ${snapshot.version} 已锁定。`, '最终版本已冻结');
+    this.toastr.success(
+      `版本 ${snapshot.version} 已锁定；确认角色：${snapshot.confirmations?.map((item) => item.role).join('、')}。`,
+      '最终版本已冻结'
+    );
   }
 
   startEmergencyRevision(): void {
@@ -606,8 +730,43 @@ export class AppComponent implements OnInit {
       if (locale && this.draft.languages.some((language) => language.id === locale)) this.selectedLanguageId = locale;
       this.activeView = 'compose';
     } else if (check.id === 'discussions') {
-      this.activeView = 'review';
+      const stuck = this.unresolvedDiscussions[0];
+      if (stuck) this.goToDiscussion(stuck);
+      else this.activeView = 'review';
+    } else if (check.id === 'role-confirmations') {
+      const first = this.missingRoleReviews[0];
+      if (first) this.goToRole(first.role);
+      else this.activeView = 'review';
     }
+  }
+
+  goToView(view: WorkspaceView): void {
+    this.focusDiscussionId = '';
+    this.focusRole = '';
+    this.activeView = view;
+  }
+
+  goToChecks(): void {
+    this.focusDiscussionId = '';
+    this.focusRole = '';
+    this.activeView = 'checks';
+  }
+
+  goToDiscussion(discussion: Discussion): void {
+    const language = this.draft.languages.find((item) => item.id === discussion.languageId);
+    if (language) {
+      this.selectedLanguageId = discussion.languageId;
+      this.selectedSentenceIndex = discussion.sentenceIndex;
+    }
+    this.focusRole = '';
+    this.focusDiscussionId = discussion.id;
+    this.activeView = 'review';
+  }
+
+  goToRole(role: RoleReview['role']): void {
+    this.focusDiscussionId = '';
+    this.focusRole = role;
+    this.activeView = 'review';
   }
 
   undo(): void {
@@ -636,8 +795,8 @@ export class AppComponent implements OnInit {
     this.persist();
   }
 
-  formatDateTime(value: string): string {
-    if (!value) return '未设置';
+  formatDateTime(value?: string): string {
+    if (!value) return '时间未记录';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', {
       month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
@@ -659,6 +818,35 @@ export class AppComponent implements OnInit {
     this.persist();
   }
 
+  /**
+   * 内容变更入口：事件要素或任一语言被修改后，若当前稿曾锁定
+   * （含紧急修订），受影响角色的旧确认标记失效，须重新确认；
+   * 历史版本快照不做任何改动。
+   */
+  private changeContent(roles: RoleReview['role'][], mutator: (draft: NoticeDraft) => void): void {
+    if (this.isLocked) return;
+    const beforeStale = new Set(
+      this.draft.reviews.filter((review) => review.stale).map((review) => review.role)
+    );
+    this.commit((draft) => {
+      mutator(draft);
+      if (draft.lockedVersionId) {
+        draft.reviews.forEach((review) => {
+          if (roles.includes(review.role) && review.status === 'approved') review.stale = true;
+        });
+      }
+    });
+    const newlyStale = this.draft.reviews
+      .filter((review) => review.stale && !beforeStale.has(review.role))
+      .map((review) => review.role);
+    if (newlyStale.length) {
+      this.toastr.warning(
+        `锁定稿内容已变更，${newlyStale.join('、')}的原确认失效，请在角色审阅页重新确认后再锁定。`,
+        '确认已失效'
+      );
+    }
+  }
+
   private persist(): void {
     this.lastSavedAt = this.formatDateTime(new Date().toISOString());
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...this.draft, updatedAt: new Date().toISOString() }));
@@ -669,6 +857,13 @@ export class AppComponent implements OnInit {
     value.discussions ??= [];
     value.reviews ??= [];
     value.requiredLocales ??= ['zh-CN'];
+    value.reviews.forEach((review) => {
+      review.confirmedAt ??= undefined;
+      review.stale ??= false;
+    });
+    if (value.status === 'locked' && !value.lockedVersionId) {
+      value.lockedVersionId = value.versions.find((version) => version.label === '最终锁定版本')?.id;
+    }
     return value;
   }
 

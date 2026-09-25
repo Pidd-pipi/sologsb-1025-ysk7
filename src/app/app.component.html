@@ -30,24 +30,30 @@
     </section>
 
     <nav class="workspace-nav" aria-label="工作区">
-      <button [class.active]="activeView === 'compose'" (click)="activeView = 'compose'">
+      <button [class.active]="activeView === 'compose'" (click)="goToView('compose')">
         <span>01</span><strong>通知编写</strong><small>事件要素与多语言正文</small>
       </button>
-      <button [class.active]="activeView === 'checks'" (click)="activeView = 'checks'">
+      <button [class.active]="activeView === 'checks'" (click)="goToView('checks')">
         <span>02</span><strong>发布前检查</strong><small>必填、术语、时间与版本</small>
       </button>
-      <button [class.active]="activeView === 'review'" (click)="activeView = 'review'">
+      <button [class.active]="activeView === 'review'" (click)="goToView('review')">
         <span>03</span><strong>角色审阅</strong><small>逐句讨论与责任确认</small>
       </button>
-      <button [class.active]="activeView === 'versions'" (click)="activeView = 'versions'">
+      <button [class.active]="activeView === 'versions'" (click)="goToView('versions')">
         <span>04</span><strong>锁定与比较</strong><small>冻结、紧急修订、差异</small>
       </button>
     </nav>
 
+    <div *ngIf="staleReviews.length && !isLocked" class="stale-banner">
+      <div class="stale-sign">重认</div>
+      <div><strong>锁定稿已被修改，原角色确认失效</strong><p>待重新确认角色：<b>{{ staleRoleNames }}</b>；重新锁定前需由这些角色再次确认，历史版本记录保持原样。</p></div>
+      <button nbButton status="warning" size="small" (click)="goToRole(staleReviews[0].role)">前往重认</button>
+    </div>
+
     <div *ngIf="draft.emergencyRevision" class="emergency-banner">
       <div class="emergency-sign">修订</div>
       <div><strong>正在处理紧急修订</strong><p>已从锁定版本派生新草稿，原版本不会被覆盖。完成后需重新进行发布检查。</p></div>
-      <button nbButton status="warning" size="small" (click)="activeView = 'checks'">前往检查</button>
+      <button nbButton status="warning" size="small" (click)="goToChecks()">前往检查</button>
     </div>
 
     <main *ngIf="activeView === 'compose'" class="view-grid compose-grid">
@@ -134,12 +140,13 @@
         <nb-card class="panel compact">
           <nb-card-header><div><span class="section-kicker">发布门禁</span><h3>检查摘要</h3></div><span class="count-pill danger">{{ blockingChecks.length }}</span></nb-card-header>
           <nb-card-body>
-            <div class="check-overview" (click)="activeView = 'checks'">
+            <div class="check-overview" (click)="goToChecks()">
               <div><strong>必填与语言</strong><span>{{ checks.length }} 项结果</span></div>
               <div><strong>阻断问题</strong><span class="danger-text">{{ blockingChecks.length }} 项</span></div>
-              <div><strong>未解决讨论</strong><span>{{ unresolvedDiscussionCount }} 条</span></div>
+              <div><strong>未解决讨论</strong><span [class.danger-text]="unresolvedDiscussionCount > 0">{{ unresolvedDiscussionCount }} 条</span></div>
+              <div><strong>跨角色确认</strong><span [class.danger-text]="hasIncompleteReviews">{{ 4 - missingRoleReviews.length }}/4 已确认</span></div>
             </div>
-            <button nbButton fullWidth status="basic" (click)="activeView = 'checks'">查看完整检查</button>
+            <button nbButton fullWidth status="basic" (click)="goToChecks()">查看完整检查</button>
           </nb-card-body>
         </nb-card>
 
@@ -148,7 +155,7 @@
           <nb-card-body class="workflow-list">
             <div class="done"><span>1</span><p><strong>内容起草</strong>自动保存到本机</p></div>
             <div [class.done]="blockingChecks.length === 0"><span>2</span><p><strong>发布检查</strong>必须清除阻断项</p></div>
-            <div [class.done]="allReviewsApproved"><span>3</span><p><strong>角色确认</strong>编辑、法务、翻译、发布人</p></div>
+            <div [class.done]="allReviewsApproved && !unresolvedDiscussionCount"><span>3</span><p><strong>角色确认</strong>四角色确认且讨论清零</p></div>
             <div [class.done]="isLocked"><span>4</span><p><strong>冻结发布</strong>生成不可变快照</p></div>
           </nb-card-body>
         </nb-card>
@@ -157,7 +164,7 @@
 
     <section *ngIf="activeView === 'checks'" class="view-section">
       <div class="section-heading">
-        <div><span class="eyebrow">发布门禁</span><h2>逐项检查通知是否可发布</h2><p>错误项会阻止版本锁定；警告项需要人工确认并承担责任。</p></div>
+        <div><span class="eyebrow">发布门禁</span><h2>逐项检查通知是否可发布</h2><p>任一角色未确认或存在未解决逐句讨论都会阻止锁定；错误项必须修复，警告项需要人工确认并承担责任。</p></div>
         <button nbButton status="danger" size="large" (click)="lockVersion()" [disabled]="isLocked">检查通过后锁定最终版本</button>
       </div>
       <div class="check-layout">
@@ -170,9 +177,42 @@
             </div>
             <button nbButton size="small" status="basic" (click)="showCheck(check)">定位</button>
           </article>
-          <div *ngIf="!checks.length" class="all-clear"><strong>全部检查已通过</strong><p>可以进入角色确认并锁定最终版本。</p></div>
+          <div *ngIf="!checks.length" class="all-clear"><strong>全部检查已通过</strong><p>四角色确认齐备、逐句讨论已清零，可以锁定最终版本。</p></div>
         </div>
         <aside>
+          <nb-card class="panel gate-card">
+            <nb-card-header><div><span class="section-kicker">跨角色确认门禁</span><h3>{{ confirmationGateReady ? '门禁已满足' : '门禁未满足' }}</h3></div>
+              <span class="status-pill" [class.locked]="confirmationGateReady">{{ confirmationGateReady ? '可锁定' : '待满足' }}</span>
+            </nb-card-header>
+            <nb-card-body>
+              <p class="gate-copy">锁定需编辑、法务、翻译、发布人全部确认，且逐句讨论全部解决。</p>
+              <div class="gate-roles">
+                <div *ngFor="let review of draft.reviews" class="gate-role" [class.missing]="review.status !== 'approved' || review.stale" [class.focus]="focusRole === review.role">
+                  <strong>{{ review.role }}</strong>
+                  <span *ngIf="review.status === 'approved' && !review.stale">
+                    已确认 · {{ formatDateTime(review.confirmedAt) }}
+                    <button nbButton size="tiny" status="basic" (click)="goToRole(review.role)">查看</button>
+                  </span>
+                  <span *ngIf="review.status === 'approved' && review.stale" class="danger-text">
+                    内容已变更，确认失效，待重认
+                    <button nbButton size="tiny" status="warning" (click)="goToRole(review.role)">去重认</button>
+                  </span>
+                  <span *ngIf="review.status !== 'approved'" class="danger-text">
+                    {{ review.status === 'changes' ? '已退回修改' : '尚未确认' }}
+                    <button nbButton size="tiny" status="warning" (click)="goToRole(review.role)">去确认</button>
+                  </span>
+                </div>
+              </div>
+              <div class="gate-discussions" *ngIf="unresolvedDiscussions.length">
+                <h4>未解决逐句讨论（{{ unresolvedDiscussions.length }}）</h4>
+                <button *ngFor="let item of unresolvedDiscussions" class="discussion-locator" [class.focus]="focusDiscussionId === item.id" (click)="goToDiscussion(item)">
+                  <b>{{ languageName(item.languageId) }} · 第 {{ item.sentenceIndex + 1 }} 句</b>
+                  <span>{{ discussionSentence(item) }}</span>
+                </button>
+              </div>
+              <nb-alert status="success" *ngIf="confirmationGateReady && !blockingChecks.length">所有角色均已确认且讨论清零，门禁已放行。</nb-alert>
+            </nb-card-body>
+          </nb-card>
           <nb-card class="panel score-card">
             <nb-card-body>
               <span class="section-kicker">检查结果</span>
@@ -183,6 +223,7 @@
               <div class="score-row"><span>总检查</span><b>{{ checks.length }}</b></div>
             </nb-card-body>
           </nb-card>
+          <nb-alert status="danger" *ngIf="lockFeedback">{{ lockFeedback }}</nb-alert>
           <nb-alert status="info" *ngIf="draft.status === 'in-review'">当前稿处于审阅状态。锁定后如需修改，必须发起紧急修订。</nb-alert>
         </aside>
       </div>
@@ -199,6 +240,18 @@
       </div>
       <div class="review-grid">
         <div class="main-column">
+          <nb-card class="panel" *ngIf="unresolvedDiscussions.length">
+            <nb-card-header><div><span class="section-kicker">发布门禁</span><h3>未解决逐句讨论 · {{ unresolvedDiscussions.length }} 条</h3></div></nb-card-header>
+            <nb-card-body>
+              <p class="muted">以下讨论不解决，版本无法锁定；点击条目可直接跳到对应语言的句子。</p>
+              <div class="gate-discussions">
+                <button *ngFor="let item of unresolvedDiscussions" class="discussion-locator" [class.focus]="focusDiscussionId === item.id" (click)="goToDiscussion(item)">
+                  <b>{{ languageName(item.languageId) }} · 第 {{ item.sentenceIndex + 1 }} 句</b>
+                  <span>{{ discussionSentence(item) }}</span>
+                </button>
+              </div>
+            </nb-card-body>
+          </nb-card>
           <nb-card class="panel">
             <nb-card-header><div><span class="section-kicker">逐句讨论</span><h3>{{ selectedLanguage.name }} · 第 {{ selectedSentenceIndex + 1 }} 句</h3></div></nb-card-header>
             <nb-card-body>
@@ -208,7 +261,7 @@
                 <button nbButton status="primary" [disabled]="isLocked || !discussionText.trim()" (click)="addDiscussion()">添加讨论</button>
               </div>
               <div class="discussion-list">
-                <article *ngFor="let discussion of activeDiscussions" [class.resolved]="discussion.resolved">
+                <article *ngFor="let discussion of activeDiscussions" [class.resolved]="discussion.resolved" [class.focus]="focusDiscussionId === discussion.id">
                   <div class="avatar">{{ discussion.author.slice(0, 1) }}</div>
                   <div>
                     <header><strong>{{ discussion.author }}</strong><span>{{ discussion.role }}</span><time>{{ formatDateTime(discussion.createdAt) }}</time></header>
@@ -225,12 +278,25 @@
           <nb-card class="panel role-review-card">
             <nb-card-header><div><span class="section-kicker">责任链</span><h3>角色审阅</h3></div></nb-card-header>
             <nb-card-body>
-              <article *ngFor="let review of draft.reviews">
-                <header><div><strong>{{ review.role }}</strong><span>{{ review.owner }}</span></div><b [class]="review.status">{{ review.status === 'approved' ? '已确认' : review.status === 'changes' ? '需修改' : '待审阅' }}</b></header>
+              <article *ngFor="let review of draft.reviews" [class.focus]="focusRole === review.role" [class.stale]="review.stale">
+                <header>
+                  <div><strong>{{ review.role }}</strong><span>{{ review.owner }}</span></div>
+                  <b [class]="review.status">
+                    {{ review.status === 'approved' ? (review.stale ? '待重认' : '已确认') : review.status === 'changes' ? '需修改' : '待审阅' }}
+                  </b>
+                </header>
+                <p class="confirm-time" *ngIf="review.status === 'approved'">
+                  <ng-container *ngIf="!review.stale">确认时间：{{ formatDateTime(review.confirmedAt) }}</ng-container>
+                  <ng-container *ngIf="review.stale">锁定后内容已变更，原确认（{{ formatDateTime(review.confirmedAt) }}）失效，请重新确认</ng-container>
+                </p>
                 <textarea nbInput fullWidth rows="2" [disabled]="isLocked" [ngModel]="review.note" (ngModelChange)="setReviewNote(review.role, $event)" placeholder="审阅备注"></textarea>
-                <div><button nbButton size="tiny" status="success" [disabled]="isLocked" (click)="setReviewStatus(review.role, 'approved')">确认</button><button nbButton size="tiny" status="warning" [disabled]="isLocked" (click)="setReviewStatus(review.role, 'changes')">退回修改</button></div>
+                <div><button nbButton size="tiny" status="success" [disabled]="isLocked" (click)="setReviewStatus(review.role, 'approved')">{{ review.stale ? '重新确认' : '确认' }}</button><button nbButton size="tiny" status="warning" [disabled]="isLocked" (click)="setReviewStatus(review.role, 'changes')">退回修改</button></div>
               </article>
-              <nb-alert status="warning" *ngIf="hasIncompleteReviews">仍有角色未确认，不能视为完成跨角色审阅。</nb-alert>
+              <nb-alert status="danger" *ngIf="hasIncompleteReviews">
+                仍有{{ missingRoleReviews.length }} 个角色未完成有效确认，版本锁定将被阻止：{{ missingRoleNames }}。
+              </nb-alert>
+              <nb-alert status="success" *ngIf="confirmationGateReady">四角色均已确认、逐句讨论全部解决，发布门禁已放行。</nb-alert>
+              <button nbButton fullWidth status="danger" size="small" (click)="lockVersion()" [disabled]="isLocked">锁定最终版本</button>
             </nb-card-body>
           </nb-card>
         </aside>
@@ -252,7 +318,10 @@
             <nb-card-body class="timeline">
               <article *ngFor="let version of draft.versions; let last = last" [class.current]="last">
                 <span></span>
-                <div><b>{{ version.version }}</b><strong>{{ version.label }}</strong><p>{{ formatDateTime(version.createdAt) }} · {{ version.channels.length }} 个渠道</p><small *ngIf="version.emergency">紧急修订</small></div>
+                <div><b>{{ version.version }}</b><strong>{{ version.label }}</strong><p>{{ formatDateTime(version.createdAt) }} · {{ version.channels.length }} 个渠道</p>
+                  <small *ngIf="version.emergency">紧急修订</small>
+                  <small *ngIf="version.locked" class="locked-tag">已锁定 · {{ version.confirmations?.length ?? 0 }} 角色确认随快照留存</small>
+                </div>
               </article>
             </nb-card-body>
           </nb-card>
@@ -283,8 +352,17 @@
             <nb-card-header><div><span class="section-kicker">发布记录</span><h3>版本摘要</h3></div></nb-card-header>
             <nb-card-body class="version-summary">
               <article *ngFor="let version of draft.versions">
-                <div><span>{{ version.version }}</span><h3>{{ version.title }}</h3><p>{{ version.note }}</p></div>
-                <dl><dt>严重程度</dt><dd>{{ version.severity }}</dd><dt>失效</dt><dd>{{ formatDateTime(version.expiresAt) }}</dd></dl>
+                <div><span>{{ version.version }}</span><h3>{{ version.title }}</h3><p>{{ version.note }}</p>
+                  <ul class="confirmations" *ngIf="version.confirmations?.length">
+                    <li *ngFor="let confirmation of version.confirmations">
+                      <strong>{{ confirmation.role }}</strong>
+                      <span>{{ confirmation.owner }}</span>
+                      <em>{{ confirmation.status === 'approved' ? '已确认' : confirmation.status === 'changes' ? '退回' : '待确认' }} · {{ formatDateTime(confirmation.confirmedAt) }}</em>
+                    </li>
+                  </ul>
+                  <p class="muted" *ngIf="version.locked && !version.confirmations?.length">该版本在跨角色确认门禁上线前锁定，未留存角色确认时间。</p>
+                </div>
+                <dl><dt>严重程度</dt><dd>{{ version.severity }}</dd><dt>失效</dt><dd>{{ formatDateTime(version.expiresAt) }}</dd><dt *ngIf="version.locked">锁定</dt><dd *ngIf="version.locked">{{ formatDateTime(version.createdAt) }}</dd></dl>
               </article>
             </nb-card-body>
           </nb-card>
