@@ -125,6 +125,10 @@ blockquote { margin: 0 0 15px; padding: 15px 18px; border-left: 4px solid #ef835
 .role-review-card article > header b { padding: 3px 7px; border-radius: 6px; font-size: 10px; background: #edf2f2; }
 .role-review-card article > header b.approved { color: #27795e; background: #e2f5ed; }
 .role-review-card article > header b.changes { color: #bb5a42; background: #fff0ea; }
+.role-review-card article > header b.pending { color: #8a6a2f; background: #fdf3df; }
+.role-review-card article.stale { border-left: 3px solid #dc9c4a; padding-left: 10px; }
+.confirm-meta { margin: 0 0 7px; color: #4f8a70; font-size: 10px; }
+.reconfirm-hint { margin: 0 0 7px; color: #b56f22; font-size: 10px; }
 .role-review-card article > div:last-child { display: flex; gap: 6px; margin-top: 7px; }
 .version-actions { display: flex; gap: 8px; }
 .version-layout > aside nb-card { position: sticky; top: 100px; }
@@ -163,6 +167,13 @@ blockquote { margin: 0 0 15px; padding: 15px 18px; border-left: 4px solid #ef835
 .version-summary dl { margin: 0; display: grid; grid-template-columns: auto 1fr; align-content: start; gap: 5px 10px; font-size: 11px; }
 .version-summary dt { color: #89999d; }
 .version-summary dd { margin: 0; color: #4d646c; text-align: right; }
+.snapshot-reviews { margin: 9px 0 0; padding: 8px 0 0; border-top: 1px dashed #dde7e7; display: grid; gap: 5px; list-style: none; }
+.snapshot-reviews li { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #6d828a; }
+.snapshot-reviews b { padding: 2px 6px; border-radius: 5px; font-size: 9px; background: #edf2f2; }
+.snapshot-reviews b.approved { color: #27795e; background: #e2f5ed; }
+.snapshot-reviews b.changes { color: #bb5a42; background: #fff0ea; }
+.snapshot-reviews b.pending { color: #8a6a2f; background: #fdf3df; }
+.snapshot-reviews time { margin-left: auto; color: #93a3a8; }
 @media (max-width: 1100px) {
   .view-grid, .check-layout, .review-grid, .version-layout { grid-template-columns: 1fr; }
   .side-column { grid-template-columns: repeat(3, 1fr); }

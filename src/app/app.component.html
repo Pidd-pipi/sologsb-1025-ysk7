@@ -138,6 +138,7 @@
               <div><strong>必填与语言</strong><span>{{ checks.length }} 项结果</span></div>
               <div><strong>阻断问题</strong><span class="danger-text">{{ blockingChecks.length }} 项</span></div>
               <div><strong>未解决讨论</strong><span>{{ unresolvedDiscussionCount }} 条</span></div>
+              <div><strong>待确认角色</strong><span [class.danger-text]="pendingReviewRoles.length">{{ pendingReviewRoles.length ? pendingReviewRoles.join('、') : '全部已确认' }}</span></div>
             </div>
             <button nbButton fullWidth status="basic" (click)="activeView = 'checks'">查看完整检查</button>
           </nb-card-body>
@@ -148,7 +149,7 @@
           <nb-card-body class="workflow-list">
             <div class="done"><span>1</span><p><strong>内容起草</strong>自动保存到本机</p></div>
             <div [class.done]="blockingChecks.length === 0"><span>2</span><p><strong>发布检查</strong>必须清除阻断项</p></div>
-            <div [class.done]="allReviewsApproved"><span>3</span><p><strong>角色确认</strong>编辑、法务、翻译、发布人</p></div>
+            <div [class.done]="allReviewsApproved"><span>3</span><p><strong>角色确认</strong>{{ reconfirmRoles.length ? '待重认：' + reconfirmRoles.join('、') : '编辑、法务、翻译、发布人' }}</p></div>
             <div [class.done]="isLocked"><span>4</span><p><strong>冻结发布</strong>生成不可变快照</p></div>
           </nb-card-body>
         </nb-card>
@@ -225,12 +226,15 @@
           <nb-card class="panel role-review-card">
             <nb-card-header><div><span class="section-kicker">责任链</span><h3>角色审阅</h3></div></nb-card-header>
             <nb-card-body>
-              <article *ngFor="let review of draft.reviews">
-                <header><div><strong>{{ review.role }}</strong><span>{{ review.owner }}</span></div><b [class]="review.status">{{ review.status === 'approved' ? '已确认' : review.status === 'changes' ? '需修改' : '待审阅' }}</b></header>
+              <article *ngFor="let review of draft.reviews" [class.stale]="review.needsReconfirm && review.status !== 'approved'">
+                <header><div><strong>{{ review.role }}</strong><span>{{ review.owner }}</span></div><b [class]="review.status">{{ review.status === 'approved' ? '已确认' : review.status === 'changes' ? '需修改' : review.needsReconfirm ? '待重认' : '待审阅' }}</b></header>
+                <p class="confirm-meta" *ngIf="review.status === 'approved' && review.confirmedAt">确认于 {{ formatDateTime(review.confirmedAt) }}</p>
+                <p class="reconfirm-hint" *ngIf="review.needsReconfirm && review.status !== 'approved'">锁定后事件要素或语言内容已变更，原确认失效。</p>
                 <textarea nbInput fullWidth rows="2" [disabled]="isLocked" [ngModel]="review.note" (ngModelChange)="setReviewNote(review.role, $event)" placeholder="审阅备注"></textarea>
                 <div><button nbButton size="tiny" status="success" [disabled]="isLocked" (click)="setReviewStatus(review.role, 'approved')">确认</button><button nbButton size="tiny" status="warning" [disabled]="isLocked" (click)="setReviewStatus(review.role, 'changes')">退回修改</button></div>
               </article>
-              <nb-alert status="warning" *ngIf="hasIncompleteReviews">仍有角色未确认，不能视为完成跨角色审阅。</nb-alert>
+              <nb-alert status="danger" *ngIf="reconfirmRoles.length">内容在锁定后发生变更，待重新确认：{{ reconfirmRoles.join('、') }}。历史版本快照不受影响。</nb-alert>
+              <nb-alert status="warning" *ngIf="hasIncompleteReviews && !reconfirmRoles.length">仍有角色未确认，未全部确认前无法锁定版本。</nb-alert>
             </nb-card-body>
           </nb-card>
         </aside>
@@ -283,7 +287,17 @@
             <nb-card-header><div><span class="section-kicker">发布记录</span><h3>版本摘要</h3></div></nb-card-header>
             <nb-card-body class="version-summary">
               <article *ngFor="let version of draft.versions">
-                <div><span>{{ version.version }}</span><h3>{{ version.title }}</h3><p>{{ version.note }}</p></div>
+                <div>
+                  <span>{{ version.version }}</span><h3>{{ version.title }}</h3><p>{{ version.note }}</p>
+                  <ul class="snapshot-reviews" *ngIf="version.reviews?.length">
+                    <li *ngFor="let review of version.reviews">
+                      <b [class]="review.status">{{ review.role }}</b>
+                      <span>{{ review.owner }}</span>
+                      <time>{{ review.status === 'approved' ? (review.confirmedAt ? '确认于 ' + formatDateTime(review.confirmedAt) : '已确认') : '未确认' }}</time>
+                    </li>
+                  </ul>
+                  <p class="muted" *ngIf="!version.reviews?.length">该版本未记录确认信息。</p>
+                </div>
                 <dl><dt>严重程度</dt><dd>{{ version.severity }}</dd><dt>失效</dt><dd>{{ formatDateTime(version.expiresAt) }}</dd></dl>
               </article>
             </nb-card-body>
